@@ -49,7 +49,7 @@ export default function App() {
     category: "景點",
   });
 
-  // ====== 核心邏輯 (與上一版完全相同，確保功能穩定) ======
+  // ====== 核心連線邏輯 ======
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const urlRoomId = params.get("roomId");
@@ -99,7 +99,14 @@ export default function App() {
           snapshot.forEach((doc) => {
             items.push({ id: doc.id, ...doc.data() });
           });
-          items.sort((a, b) => a.createdAt - b.createdAt);
+
+          // 依照 order 排序，若無 order 則依建立時間排序
+          items.sort((a, b) => {
+            const orderA = a.order !== undefined ? a.order : a.createdAt;
+            const orderB = b.order !== undefined ? b.order : b.createdAt;
+            return orderA - orderB;
+          });
+
           setItineraries(items);
         }
       );
@@ -162,14 +169,27 @@ export default function App() {
     await updateDoc(roomRef, { [`dailyLocations.${date}`]: value });
   };
 
+  const displayItems = itineraries.filter(
+    (item) =>
+      item.date === selectedDate &&
+      (filterCategory === "全部" || item.category === filterCategory)
+  );
+
   const handleAddItinerary = async () => {
     if (!newItem.title) {
       alert("請至少輸入行程名稱唷！");
       return;
     }
+
+    const currentMaxOrder =
+      displayItems.length > 0
+        ? Math.max(...displayItems.map((i) => i.order || 0))
+        : 0;
+
     await addDoc(collection(db, "trips", roomData.id, "itineraries"), {
       ...newItem,
       date: selectedDate,
+      order: currentMaxOrder + 1,
       createdAt: Date.now(),
     });
     setNewItem({
@@ -179,6 +199,32 @@ export default function App() {
       link: "",
       category: "景點",
     });
+  };
+
+  const handleMoveOrder = async (index, direction) => {
+    if (!isAdmin) return;
+    const newItems = [...displayItems];
+
+    if (direction === "up" && index > 0) {
+      [newItems[index - 1], newItems[index]] = [
+        newItems[index],
+        newItems[index - 1],
+      ];
+    } else if (direction === "down" && index < newItems.length - 1) {
+      [newItems[index], newItems[index + 1]] = [
+        newItems[index + 1],
+        newItems[index],
+      ];
+    } else {
+      return;
+    }
+
+    await Promise.all(
+      newItems.map((item, idx) => {
+        const itemRef = doc(db, "trips", roomData.id, "itineraries", item.id);
+        return updateDoc(itemRef, { order: idx });
+      })
+    );
   };
 
   const handleFinishItem = async (itemId) => {
@@ -227,17 +273,17 @@ export default function App() {
     }
   };
 
-  // ====== 全新 Mobile-First UI 美化區 ======
+  // ====== UI 主題與樣式 ======
   const theme = {
-    bg: "#FFF9F5", // 溫暖的奶茶底色
-    primary: "#D4B5A5", // 柔軟的主題色
-    primaryDark: "#B89988", // 按下時的深色
-    text: "#5C4E46", // 柔和的深咖色，代替死板的黑色
-    textLight: "#968A82", // 次要文字顏色
-    cardBg: "#FFFFFF", // 卡片純白底色
-    border: "#F0E6DF", // 極淡的邊框色
-    shadow: "0 8px 24px rgba(92, 78, 70, 0.06)", // 雲朵般的柔和陰影
-    radius: "16px", // 手機友善的大圓角
+    bg: "#FFF9F5",
+    primary: "#D4B5A5",
+    primaryDark: "#B89988",
+    text: "#5C4E46",
+    textLight: "#968A82",
+    cardBg: "#FFFFFF",
+    border: "#F0E6DF",
+    shadow: "0 8px 24px rgba(92, 78, 70, 0.06)",
+    radius: "16px",
   };
 
   const styles = {
@@ -251,11 +297,14 @@ export default function App() {
     },
     card: {
       backgroundColor: theme.cardBg,
-      padding: "24px",
+      padding: "0",
       borderRadius: theme.radius,
       boxShadow: theme.shadow,
       border: `1px solid ${theme.border}`,
-      marginBottom: "20px",
+      marginBottom: "15px",
+      display: "flex",
+      flexDirection: "row",
+      overflow: "hidden",
     },
     input: {
       width: "100%",
@@ -307,7 +356,6 @@ export default function App() {
     }),
   };
 
-  // 分類標籤對應的 Emoji
   const getCategoryEmoji = (cat) => {
     switch (cat) {
       case "景點":
@@ -321,24 +369,29 @@ export default function App() {
     }
   };
 
-  const displayItems = itineraries.filter(
-    (item) =>
-      item.date === selectedDate &&
-      (filterCategory === "全部" || item.category === filterCategory)
-  );
-
   return (
     <>
-      {/* 載入圓潤字體 */}
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=Nunito:wght@400;700&family=Noto+Sans+TC:wght@400;700&display=swap');
         body { margin: 0; background-color: ${theme.bg}; -webkit-tap-highlight-color: transparent; }
         * { box-sizing: border-box; }
         input:focus, textarea:focus { box-shadow: 0 0 0 2px ${theme.primary} !important; }
-        ::-webkit-scrollbar { display: none; } /* 隱藏手機版醜醜的滾動條 */
+        ::-webkit-scrollbar { display: none; }
+        
+        @keyframes floatDown {
+          0%, 100% { transform: translateY(0); }
+          50% { transform: translateY(6px); }
+        }
+        .flow-arrow {
+          text-align: center;
+          color: ${theme.primary};
+          font-size: 24px;
+          margin: 0px 0 15px 0;
+          animation: floatDown 2s ease-in-out infinite;
+          opacity: 0.8;
+        }
       `}</style>
 
-      {/* 1. 大廳畫面 */}
       {view === "lobby" && (
         <div
           style={{
@@ -373,7 +426,18 @@ export default function App() {
             </p>
           </div>
 
-          <div style={{ ...styles.card, width: "100%", maxWidth: "400px" }}>
+          <div
+            style={{
+              backgroundColor: theme.cardBg,
+              padding: "24px",
+              borderRadius: theme.radius,
+              boxShadow: theme.shadow,
+              border: `1px solid ${theme.border}`,
+              width: "100%",
+              maxWidth: "400px",
+              marginBottom: "10px",
+            }}
+          >
             <h2
               style={{
                 fontSize: "18px",
@@ -427,10 +491,13 @@ export default function App() {
 
           <div
             style={{
-              ...styles.card,
+              backgroundColor: theme.cardBg,
+              padding: "24px",
+              borderRadius: theme.radius,
+              boxShadow: theme.shadow,
+              border: `1px solid ${theme.border}`,
               width: "100%",
               maxWidth: "400px",
-              marginTop: "10px",
             }}
           >
             <h2
@@ -465,16 +532,17 @@ export default function App() {
         </div>
       )}
 
-      {/* 2. 房間畫面 */}
       {view === "room" && (
         <div style={styles.container}>
           <div style={{ maxWidth: "600px", margin: "0 auto" }}>
-            {/* 頂部資訊卡片 */}
             <div
               style={{
-                ...styles.card,
-                paddingTop: "20px",
-                paddingBottom: "24px",
+                backgroundColor: theme.cardBg,
+                padding: "24px",
+                borderRadius: theme.radius,
+                boxShadow: theme.shadow,
+                border: `1px solid ${theme.border}`,
+                marginBottom: "15px",
               }}
             >
               <div
@@ -560,7 +628,6 @@ export default function App() {
               </div>
             </div>
 
-            {/* 日期導覽列 (可橫向滑動) */}
             <div
               style={{
                 display: "flex",
@@ -608,11 +675,14 @@ export default function App() {
               })}
             </div>
 
-            {/* 當日主要區域 */}
             <div
               style={{
-                ...styles.card,
+                backgroundColor: theme.cardBg,
                 padding: "16px 20px",
+                borderRadius: theme.radius,
+                boxShadow: theme.shadow,
+                border: `1px solid ${theme.border}`,
+                marginBottom: "15px",
                 display: "flex",
                 alignItems: "center",
                 gap: "12px",
@@ -669,7 +739,6 @@ export default function App() {
               </div>
             </div>
 
-            {/* 分類標籤 */}
             <div
               style={{
                 display: "flex",
@@ -690,7 +759,6 @@ export default function App() {
               ))}
             </div>
 
-            {/* 行程列表顯示 (改為適合手機的單欄佈局) */}
             {displayItems.length === 0 ? (
               <div
                 style={{
@@ -709,126 +777,180 @@ export default function App() {
                 </p>
               </div>
             ) : (
-              <div
-                style={{
-                  display: "grid",
-                  gridTemplateColumns: "1fr",
-                  gap: "20px",
-                }}
-              >
-                {displayItems.map((item) => (
-                  <div
-                    key={item.id}
-                    style={{
-                      ...styles.card,
-                      padding: "0",
-                      overflow: "hidden",
-                      display: "flex",
-                      flexDirection: "column",
-                    }}
-                  >
-                    {/* 行程圖片 */}
-                    {item.imageUrl && (
-                      <a
-                        href={item.link || "#"}
-                        target={item.link ? "_blank" : "_self"}
-                        rel="noopener noreferrer"
-                        style={{
-                          display: "block",
-                          cursor: item.link ? "pointer" : "default",
-                        }}
-                      >
-                        <img
-                          src={item.imageUrl}
-                          alt={item.title}
+              <div style={{ display: "flex", flexDirection: "column" }}>
+                {displayItems.map((item, index) => (
+                  <React.Fragment key={item.id}>
+                    {/* 更新的水平排版卡片 */}
+                    <div style={styles.card}>
+                      {/* 左側：極簡箭頭排序區塊 (僅管理員可見) */}
+                      {isAdmin && filterCategory === "全部" && (
+                        <div
                           style={{
-                            width: "100%",
-                            height: "220px",
-                            objectFit: "cover",
-                          }}
-                        />
-                      </a>
-                    )}
-
-                    {/* 行程資訊區 */}
-                    <div style={{ padding: "20px" }}>
-                      <div
-                        style={{
-                          display: "flex",
-                          justifyContent: "space-between",
-                          alignItems: "flex-start",
-                          marginBottom: "12px",
-                        }}
-                      >
-                        <h3
-                          style={{
-                            margin: 0,
-                            fontSize: "20px",
-                            fontWeight: "bold",
-                            lineHeight: "1.3",
-                          }}
-                        >
-                          {item.title}
-                        </h3>
-                        <span
-                          style={{
-                            fontSize: "12px",
+                            display: "flex",
+                            flexDirection: "column",
+                            justifyContent: "center",
+                            alignItems: "center",
+                            padding: "10px 8px",
                             backgroundColor: theme.bg,
-                            color: theme.textLight,
-                            padding: "6px 10px",
-                            borderRadius: "8px",
-                            fontWeight: "bold",
+                            borderRight: `1px solid ${theme.border}`,
+                            width: "44px",
+                            flexShrink: 0,
                           }}
                         >
-                          {getCategoryEmoji(item.category)} {item.category}
-                        </span>
-                      </div>
-
-                      {item.description && (
-                        <p
-                          style={{
-                            fontSize: "15px",
-                            color: theme.textLight,
-                            lineHeight: "1.6",
-                            margin: "0 0 20px 0",
-                          }}
-                        >
-                          {item.description}
-                        </p>
+                          <button
+                            onClick={() => handleMoveOrder(index, "up")}
+                            disabled={index === 0}
+                            style={{
+                              background: "none",
+                              border: "none",
+                              fontSize: "20px",
+                              padding: "12px 0",
+                              cursor: index === 0 ? "not-allowed" : "pointer",
+                              opacity: index === 0 ? 0.2 : 1,
+                              transition: "0.2s",
+                            }}
+                          >
+                            🔼
+                          </button>
+                          <button
+                            onClick={() => handleMoveOrder(index, "down")}
+                            disabled={index === displayItems.length - 1}
+                            style={{
+                              background: "none",
+                              border: "none",
+                              fontSize: "20px",
+                              padding: "12px 0",
+                              cursor:
+                                index === displayItems.length - 1
+                                  ? "not-allowed"
+                                  : "pointer",
+                              opacity:
+                                index === displayItems.length - 1 ? 0.2 : 1,
+                              transition: "0.2s",
+                            }}
+                          >
+                            🔽
+                          </button>
+                        </div>
                       )}
 
-                      <button
-                        onClick={() => handleFinishItem(item.id)}
+                      {/* 右側：原有的行程圖片與內容 */}
+                      <div
                         style={{
-                          width: "100%",
-                          padding: "14px",
-                          backgroundColor: theme.bg,
-                          color: theme.textLight,
-                          border: "none",
-                          borderRadius: "12px",
-                          fontSize: "15px",
-                          fontWeight: "bold",
-                          cursor: "pointer",
-                          transition: "0.2s",
+                          flexGrow: 1,
+                          display: "flex",
+                          flexDirection: "column",
+                          minWidth: 0,
                         }}
                       >
-                        ✅ 標記為已逛完並移除
-                      </button>
+                        {item.imageUrl && (
+                          <a
+                            href={item.link || "#"}
+                            target={item.link ? "_blank" : "_self"}
+                            rel="noopener noreferrer"
+                            style={{
+                              display: "block",
+                              cursor: item.link ? "pointer" : "default",
+                            }}
+                          >
+                            <img
+                              src={item.imageUrl}
+                              alt={item.title}
+                              style={{
+                                width: "100%",
+                                height: "180px",
+                                objectFit: "cover",
+                              }}
+                            />
+                          </a>
+                        )}
+
+                        <div style={{ padding: "16px 20px" }}>
+                          <div
+                            style={{
+                              display: "flex",
+                              justifyContent: "space-between",
+                              alignItems: "flex-start",
+                              marginBottom: "12px",
+                            }}
+                          >
+                            <h3
+                              style={{
+                                margin: 0,
+                                fontSize: "20px",
+                                fontWeight: "bold",
+                                lineHeight: "1.3",
+                              }}
+                            >
+                              {item.title}
+                            </h3>
+                            <span
+                              style={{
+                                fontSize: "12px",
+                                backgroundColor: theme.bg,
+                                color: theme.textLight,
+                                padding: "6px 10px",
+                                borderRadius: "8px",
+                                fontWeight: "bold",
+                                whiteSpace: "nowrap",
+                                marginLeft: "10px",
+                              }}
+                            >
+                              {getCategoryEmoji(item.category)} {item.category}
+                            </span>
+                          </div>
+
+                          {item.description && (
+                            <p
+                              style={{
+                                fontSize: "15px",
+                                color: theme.textLight,
+                                lineHeight: "1.6",
+                                margin: "0 0 16px 0",
+                              }}
+                            >
+                              {item.description}
+                            </p>
+                          )}
+
+                          <button
+                            onClick={() => handleFinishItem(item.id)}
+                            style={{
+                              width: "100%",
+                              padding: "12px",
+                              backgroundColor: theme.bg,
+                              color: theme.textLight,
+                              border: "none",
+                              borderRadius: "12px",
+                              fontSize: "15px",
+                              fontWeight: "bold",
+                              cursor: "pointer",
+                              transition: "0.2s",
+                            }}
+                          >
+                            ✅ 標記為已逛完並移除
+                          </button>
+                        </div>
+                      </div>
                     </div>
-                  </div>
+
+                    {/* 視覺引導小箭頭 */}
+                    {index < displayItems.length - 1 && (
+                      <div className="flow-arrow">⏬</div>
+                    )}
+                  </React.Fragment>
                 ))}
               </div>
             )}
 
-            {/* 管理員新增區塊 */}
             {isAdmin && (
               <div
                 style={{
-                  ...styles.card,
-                  marginTop: "30px",
-                  border: `2px dashed ${theme.primary}`,
                   backgroundColor: "transparent",
-                  boxShadow: "none",
+                  padding: "24px",
+                  borderRadius: theme.radius,
+                  border: `2px dashed ${theme.primary}`,
+                  marginTop: "20px",
                 }}
               >
                 <h2
@@ -866,6 +988,7 @@ export default function App() {
                       fontSize: "15px",
                       color: theme.textLight,
                       marginRight: "10px",
+                      whiteSpace: "nowrap",
                     }}
                   >
                     🖼️ 上傳圖片：
