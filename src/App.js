@@ -33,7 +33,6 @@ export default function App() {
   const [dailyLocations, setDailyLocations] = useState({});
   const [itineraries, setItineraries] = useState([]);
 
-  // 新增：控管哪一個行程正在進入原地編輯模式
   const [editingId, setEditingId] = useState(null);
   const [editItemForm, setEditItemForm] = useState({
     title: "",
@@ -236,7 +235,6 @@ export default function App() {
     );
   };
 
-  // ====== 新增：啟動原地編輯模式 ======
   const handleStartEdit = (item) => {
     setEditingId(item.id);
     setEditItemForm({
@@ -248,7 +246,6 @@ export default function App() {
     });
   };
 
-  // ====== 新增：儲存編輯內容 ======
   const handleSaveEdit = async (itemId) => {
     if (!editItemForm.title) {
       alert("行程名稱不能留空唷！");
@@ -256,10 +253,9 @@ export default function App() {
     }
     const itemRef = doc(db, "trips", roomData.id, "itineraries", itemId);
     await updateDoc(itemRef, { ...editItemForm });
-    setEditingId(null); // 關閉編輯狀態
+    setEditingId(null);
   };
 
-  // ====== 新增：管理員強制刪除行程 ======
   const handleDeleteItem = async (itemId) => {
     if (window.confirm("確定要將這個行程永久刪除嗎？此動作無法復原唷！ 🗑️")) {
       await deleteDoc(doc(db, "trips", roomData.id, "itineraries", itemId));
@@ -432,6 +428,26 @@ export default function App() {
           margin: 0px 0 15px 0;
           animation: floatDown 2s ease-in-out infinite;
           opacity: 0.8;
+        }
+        
+        .title-link {
+          text-decoration: none;
+          color: ${theme.text};
+          display: flex;
+          align-items: center;
+          gap: 6px;
+          cursor: pointer;
+          transition: 0.2s;
+        }
+        .title-link:active {
+          opacity: 0.6;
+        }
+        .title-link h3 {
+          border-bottom: 2px dashed transparent;
+          transition: 0.2s;
+        }
+        .title-link:hover h3 {
+          border-bottom: 2px dashed ${theme.primary};
         }
       `}</style>
 
@@ -824,7 +840,6 @@ export default function App() {
                 {displayItems.map((item, index) => (
                   <React.Fragment key={item.id}>
                     <div style={styles.card}>
-                      {/* 左側：排序控制列 */}
                       {isAdmin && filterCategory === "全部" && (
                         <div
                           style={{
@@ -876,7 +891,6 @@ export default function App() {
                         </div>
                       )}
 
-                      {/* 右側：內容與原地編輯控制 */}
                       <div
                         style={{
                           flexGrow: 1,
@@ -886,7 +900,6 @@ export default function App() {
                         }}
                       >
                         {editingId === item.id ? (
-                          /* 🛠️ 原地編輯模式表單 UI */
                           <div
                             style={{
                               padding: "20px",
@@ -903,7 +916,6 @@ export default function App() {
                             >
                               ✏️ 正在修改行程內容
                             </div>
-
                             <input
                               style={{
                                 ...styles.input,
@@ -919,7 +931,6 @@ export default function App() {
                                 })
                               }
                             />
-
                             <div
                               style={{
                                 ...styles.input,
@@ -951,7 +962,6 @@ export default function App() {
                                 }}
                               />
                             </div>
-
                             <input
                               style={{
                                 ...styles.input,
@@ -967,7 +977,6 @@ export default function App() {
                                 })
                               }
                             />
-
                             <select
                               style={{
                                 ...styles.input,
@@ -986,7 +995,6 @@ export default function App() {
                               <option value="美食">🍔 美食</option>
                               <option value="購物">🛍️ 購物</option>
                             </select>
-
                             <textarea
                               style={{
                                 ...styles.input,
@@ -1004,7 +1012,6 @@ export default function App() {
                                 })
                               }
                             />
-
                             <div
                               style={{
                                 display: "flex",
@@ -1045,7 +1052,6 @@ export default function App() {
                             </div>
                           </div>
                         ) : (
-                          /* 📸 一般正常顯示模式 UI */
                           <>
                             {item.imageUrl && (
                               <a
@@ -1078,16 +1084,40 @@ export default function App() {
                                   marginBottom: "12px",
                                 }}
                               >
-                                <h3
-                                  style={{
-                                    margin: 0,
-                                    fontSize: "20px",
-                                    fontWeight: "bold",
-                                    lineHeight: "1.3",
-                                  }}
-                                >
-                                  {item.title}
-                                </h3>
+                                {/* 🛠️ 修正：讓標題變成可點擊的連結，並加上視覺提示 */}
+                                {item.link ? (
+                                  <a
+                                    href={item.link}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="title-link"
+                                  >
+                                    <h3
+                                      style={{
+                                        margin: 0,
+                                        fontSize: "20px",
+                                        fontWeight: "bold",
+                                        lineHeight: "1.3",
+                                      }}
+                                    >
+                                      {item.title}
+                                    </h3>
+                                    <span style={{ fontSize: "16px" }}>🔗</span>
+                                  </a>
+                                ) : (
+                                  <h3
+                                    style={{
+                                      margin: 0,
+                                      fontSize: "20px",
+                                      fontWeight: "bold",
+                                      lineHeight: "1.3",
+                                      color: theme.text,
+                                    }}
+                                  >
+                                    {item.title}
+                                  </h3>
+                                )}
+
                                 <span
                                   style={{
                                     fontSize: "12px",
@@ -1118,7 +1148,6 @@ export default function App() {
                                 </p>
                               )}
 
-                              {/* 按鈕操作面板 */}
                               <div
                                 style={{
                                   display: "flex",
@@ -1144,7 +1173,6 @@ export default function App() {
                                   ✅ 標記為已逛完並移除
                                 </button>
 
-                                {/* 🛠️ 管理員模式專屬功能鍵：原地編輯與直接刪除 */}
                                 {isAdmin && (
                                   <div
                                     style={{
