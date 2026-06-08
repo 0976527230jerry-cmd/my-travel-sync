@@ -33,6 +33,16 @@ export default function App() {
   const [dailyLocations, setDailyLocations] = useState({});
   const [itineraries, setItineraries] = useState([]);
 
+  // 新增：控管哪一個行程正在進入原地編輯模式
+  const [editingId, setEditingId] = useState(null);
+  const [editItemForm, setEditItemForm] = useState({
+    title: "",
+    imageUrl: "",
+    description: "",
+    link: "",
+    category: "景點",
+  });
+
   const [joinRoomId, setJoinRoomId] = useState("");
   const [createForm, setCreateForm] = useState({
     name: "✈️ 我們的充電之旅",
@@ -100,7 +110,6 @@ export default function App() {
             items.push({ id: doc.id, ...doc.data() });
           });
 
-          // 依照 order 排序，若無 order 則依建立時間排序
           items.sort((a, b) => {
             const orderA = a.order !== undefined ? a.order : a.createdAt;
             const orderB = b.order !== undefined ? b.order : b.createdAt;
@@ -227,6 +236,36 @@ export default function App() {
     );
   };
 
+  // ====== 新增：啟動原地編輯模式 ======
+  const handleStartEdit = (item) => {
+    setEditingId(item.id);
+    setEditItemForm({
+      title: item.title,
+      imageUrl: item.imageUrl || "",
+      description: item.description || "",
+      link: item.link || "",
+      category: item.category || "景點",
+    });
+  };
+
+  // ====== 新增：儲存編輯內容 ======
+  const handleSaveEdit = async (itemId) => {
+    if (!editItemForm.title) {
+      alert("行程名稱不能留空唷！");
+      return;
+    }
+    const itemRef = doc(db, "trips", roomData.id, "itineraries", itemId);
+    await updateDoc(itemRef, { ...editItemForm });
+    setEditingId(null); // 關閉編輯狀態
+  };
+
+  // ====== 新增：管理員強制刪除行程 ======
+  const handleDeleteItem = async (itemId) => {
+    if (window.confirm("確定要將這個行程永久刪除嗎？此動作無法復原唷！ 🗑️")) {
+      await deleteDoc(doc(db, "trips", roomData.id, "itineraries", itemId));
+    }
+  };
+
   const handleFinishItem = async (itemId) => {
     if (window.confirm("確定已經逛完並刪除此行程嗎？ 🎉")) {
       await deleteDoc(doc(db, "trips", roomData.id, "itineraries", itemId));
@@ -241,12 +280,16 @@ export default function App() {
     localStorage.removeItem("travelSync_roomId");
   };
 
-  const handleImageUpload = (e) => {
+  const handleImageUpload = (e, mode) => {
     const file = e.target.files[0];
     if (file) {
       const reader = new FileReader();
       reader.onloadend = () => {
-        setNewItem({ ...newItem, imageUrl: reader.result });
+        if (mode === "edit") {
+          setEditItemForm({ ...editItemForm, imageUrl: reader.result });
+        } else {
+          setNewItem({ ...newItem, imageUrl: reader.result });
+        }
       };
       reader.readAsDataURL(file);
     }
@@ -375,7 +418,7 @@ export default function App() {
         @import url('https://fonts.googleapis.com/css2?family=Nunito:wght@400;700&family=Noto+Sans+TC:wght@400;700&display=swap');
         body { margin: 0; background-color: ${theme.bg}; -webkit-tap-highlight-color: transparent; }
         * { box-sizing: border-box; }
-        input:focus, textarea:focus { box-shadow: 0 0 0 2px ${theme.primary} !important; }
+        input:focus, textarea:focus, select:focus { box-shadow: 0 0 0 2px ${theme.primary} !important; }
         ::-webkit-scrollbar { display: none; }
         
         @keyframes floatDown {
@@ -780,9 +823,8 @@ export default function App() {
               <div style={{ display: "flex", flexDirection: "column" }}>
                 {displayItems.map((item, index) => (
                   <React.Fragment key={item.id}>
-                    {/* 更新的水平排版卡片 */}
                     <div style={styles.card}>
-                      {/* 左側：極簡箭頭排序區塊 (僅管理員可見) */}
+                      {/* 左側：排序控制列 */}
                       {isAdmin && filterCategory === "全部" && (
                         <div
                           style={{
@@ -834,7 +876,7 @@ export default function App() {
                         </div>
                       )}
 
-                      {/* 右側：原有的行程圖片與內容 */}
+                      {/* 右側：內容與原地編輯控制 */}
                       <div
                         style={{
                           flexGrow: 1,
@@ -843,98 +885,323 @@ export default function App() {
                           minWidth: 0,
                         }}
                       >
-                        {item.imageUrl && (
-                          <a
-                            href={item.link || "#"}
-                            target={item.link ? "_blank" : "_self"}
-                            rel="noopener noreferrer"
-                            style={{
-                              display: "block",
-                              cursor: item.link ? "pointer" : "default",
-                            }}
-                          >
-                            <img
-                              src={item.imageUrl}
-                              alt={item.title}
-                              style={{
-                                width: "100%",
-                                height: "180px",
-                                objectFit: "cover",
-                              }}
-                            />
-                          </a>
-                        )}
-
-                        <div style={{ padding: "16px 20px" }}>
+                        {editingId === item.id ? (
+                          /* 🛠️ 原地編輯模式表單 UI */
                           <div
                             style={{
-                              display: "flex",
-                              justifyContent: "space-between",
-                              alignItems: "flex-start",
-                              marginBottom: "12px",
+                              padding: "20px",
+                              backgroundColor: "#FFFDFB",
                             }}
                           >
-                            <h3
+                            <div
                               style={{
-                                margin: 0,
-                                fontSize: "20px",
+                                fontSize: "13px",
+                                color: theme.primary,
                                 fontWeight: "bold",
-                                lineHeight: "1.3",
+                                marginBottom: "10px",
                               }}
                             >
-                              {item.title}
-                            </h3>
-                            <span
+                              ✏️ 正在修改行程內容
+                            </div>
+
+                            <input
                               style={{
-                                fontSize: "12px",
-                                backgroundColor: theme.bg,
-                                color: theme.textLight,
-                                padding: "6px 10px",
-                                borderRadius: "8px",
-                                fontWeight: "bold",
-                                whiteSpace: "nowrap",
-                                marginLeft: "10px",
+                                ...styles.input,
+                                backgroundColor: theme.cardBg,
+                                border: `1px solid ${theme.border}`,
+                              }}
+                              placeholder="🏷️ 行程名稱"
+                              value={editItemForm.title}
+                              onChange={(e) =>
+                                setEditItemForm({
+                                  ...editItemForm,
+                                  title: e.target.value,
+                                })
+                              }
+                            />
+
+                            <div
+                              style={{
+                                ...styles.input,
+                                backgroundColor: theme.cardBg,
+                                border: `1px solid ${theme.border}`,
+                                display: "flex",
+                                alignItems: "center",
+                                padding: "10px 16px",
                               }}
                             >
-                              {getCategoryEmoji(item.category)} {item.category}
-                            </span>
+                              <span
+                                style={{
+                                  fontSize: "14px",
+                                  color: theme.textLight,
+                                  marginRight: "10px",
+                                  whiteSpace: "nowrap",
+                                }}
+                              >
+                                🖼️ 換張圖片：
+                              </span>
+                              <input
+                                type="file"
+                                accept="image/*"
+                                onChange={(e) => handleImageUpload(e, "edit")}
+                                style={{
+                                  fontSize: "13px",
+                                  width: "100%",
+                                  color: theme.textLight,
+                                }}
+                              />
+                            </div>
+
+                            <input
+                              style={{
+                                ...styles.input,
+                                backgroundColor: theme.cardBg,
+                                border: `1px solid ${theme.border}`,
+                              }}
+                              placeholder="🔗 Map 或網址連結"
+                              value={editItemForm.link}
+                              onChange={(e) =>
+                                setEditItemForm({
+                                  ...editItemForm,
+                                  link: e.target.value,
+                                })
+                              }
+                            />
+
+                            <select
+                              style={{
+                                ...styles.input,
+                                backgroundColor: theme.cardBg,
+                                border: `1px solid ${theme.border}`,
+                              }}
+                              value={editItemForm.category}
+                              onChange={(e) =>
+                                setEditItemForm({
+                                  ...editItemForm,
+                                  category: e.target.value,
+                                })
+                              }
+                            >
+                              <option value="景點">📸 景點</option>
+                              <option value="美食">🍔 美食</option>
+                              <option value="購物">🛍️ 購物</option>
+                            </select>
+
+                            <textarea
+                              style={{
+                                ...styles.input,
+                                backgroundColor: theme.cardBg,
+                                border: `1px solid ${theme.border}`,
+                                height: "80px",
+                                resize: "none",
+                              }}
+                              placeholder="📝 筆記備註..."
+                              value={editItemForm.description}
+                              onChange={(e) =>
+                                setEditItemForm({
+                                  ...editItemForm,
+                                  description: e.target.value,
+                                })
+                              }
+                            />
+
+                            <div
+                              style={{
+                                display: "flex",
+                                gap: "10px",
+                                marginTop: "5px",
+                              }}
+                            >
+                              <button
+                                onClick={() => handleSaveEdit(item.id)}
+                                style={{
+                                  flex: 1,
+                                  padding: "12px",
+                                  backgroundColor: theme.primary,
+                                  color: theme.cardBg,
+                                  border: "none",
+                                  borderRadius: "10px",
+                                  fontWeight: "bold",
+                                  cursor: "pointer",
+                                }}
+                              >
+                                💾 儲存修改
+                              </button>
+                              <button
+                                onClick={() => setEditingId(null)}
+                                style={{
+                                  flex: 1,
+                                  padding: "12px",
+                                  backgroundColor: theme.bg,
+                                  color: theme.textLight,
+                                  border: "none",
+                                  borderRadius: "10px",
+                                  fontWeight: "bold",
+                                  cursor: "pointer",
+                                }}
+                              >
+                                ❌ 取消
+                              </button>
+                            </div>
                           </div>
+                        ) : (
+                          /* 📸 一般正常顯示模式 UI */
+                          <>
+                            {item.imageUrl && (
+                              <a
+                                href={item.link || "#"}
+                                target={item.link ? "_blank" : "_self"}
+                                rel="noopener noreferrer"
+                                style={{
+                                  display: "block",
+                                  cursor: item.link ? "pointer" : "default",
+                                }}
+                              >
+                                <img
+                                  src={item.imageUrl}
+                                  alt={item.title}
+                                  style={{
+                                    width: "100%",
+                                    height: "180px",
+                                    objectFit: "cover",
+                                  }}
+                                />
+                              </a>
+                            )}
 
-                          {item.description && (
-                            <p
-                              style={{
-                                fontSize: "15px",
-                                color: theme.textLight,
-                                lineHeight: "1.6",
-                                margin: "0 0 16px 0",
-                              }}
-                            >
-                              {item.description}
-                            </p>
-                          )}
+                            <div style={{ padding: "16px 20px" }}>
+                              <div
+                                style={{
+                                  display: "flex",
+                                  justifyContent: "space-between",
+                                  alignItems: "flex-start",
+                                  marginBottom: "12px",
+                                }}
+                              >
+                                <h3
+                                  style={{
+                                    margin: 0,
+                                    fontSize: "20px",
+                                    fontWeight: "bold",
+                                    lineHeight: "1.3",
+                                  }}
+                                >
+                                  {item.title}
+                                </h3>
+                                <span
+                                  style={{
+                                    fontSize: "12px",
+                                    backgroundColor: theme.bg,
+                                    color: theme.textLight,
+                                    padding: "6px 10px",
+                                    borderRadius: "8px",
+                                    fontWeight: "bold",
+                                    whiteSpace: "nowrap",
+                                    marginLeft: "10px",
+                                  }}
+                                >
+                                  {getCategoryEmoji(item.category)}{" "}
+                                  {item.category}
+                                </span>
+                              </div>
 
-                          <button
-                            onClick={() => handleFinishItem(item.id)}
-                            style={{
-                              width: "100%",
-                              padding: "12px",
-                              backgroundColor: theme.bg,
-                              color: theme.textLight,
-                              border: "none",
-                              borderRadius: "12px",
-                              fontSize: "15px",
-                              fontWeight: "bold",
-                              cursor: "pointer",
-                              transition: "0.2s",
-                            }}
-                          >
-                            ✅ 標記為已逛完並移除
-                          </button>
-                        </div>
+                              {item.description && (
+                                <p
+                                  style={{
+                                    fontSize: "15px",
+                                    color: theme.textLight,
+                                    lineHeight: "1.6",
+                                    margin: "0 0 16px 0",
+                                  }}
+                                >
+                                  {item.description}
+                                </p>
+                              )}
+
+                              {/* 按鈕操作面板 */}
+                              <div
+                                style={{
+                                  display: "flex",
+                                  flexDirection: "column",
+                                  gap: "8px",
+                                }}
+                              >
+                                <button
+                                  onClick={() => handleFinishItem(item.id)}
+                                  style={{
+                                    width: "100%",
+                                    padding: "12px",
+                                    backgroundColor: theme.bg,
+                                    color: theme.textLight,
+                                    border: "none",
+                                    borderRadius: "12px",
+                                    fontSize: "15px",
+                                    fontWeight: "bold",
+                                    cursor: "pointer",
+                                    transition: "0.2s",
+                                  }}
+                                >
+                                  ✅ 標記為已逛完並移除
+                                </button>
+
+                                {/* 🛠️ 管理員模式專屬功能鍵：原地編輯與直接刪除 */}
+                                {isAdmin && (
+                                  <div
+                                    style={{
+                                      display: "flex",
+                                      gap: "8px",
+                                      marginTop: "4px",
+                                    }}
+                                  >
+                                    <button
+                                      onClick={() => handleStartEdit(item)}
+                                      style={{
+                                        flex: 1,
+                                        padding: "10px",
+                                        backgroundColor: "#FFFFFF",
+                                        color: theme.text,
+                                        border: `1px solid ${theme.border}`,
+                                        borderRadius: "10px",
+                                        fontSize: "14px",
+                                        fontWeight: "bold",
+                                        cursor: "pointer",
+                                        display: "flex",
+                                        alignItems: "center",
+                                        justifyContent: "center",
+                                        gap: "4px",
+                                      }}
+                                    >
+                                      ✏️ 編輯
+                                    </button>
+                                    <button
+                                      onClick={() => handleDeleteItem(item.id)}
+                                      style={{
+                                        flex: 1,
+                                        padding: "10px",
+                                        backgroundColor: "#FCE8E6",
+                                        color: "#C5221F",
+                                        border: "none",
+                                        borderRadius: "10px",
+                                        fontSize: "14px",
+                                        fontWeight: "bold",
+                                        cursor: "pointer",
+                                        display: "flex",
+                                        alignItems: "center",
+                                        justifyContent: "center",
+                                        gap: "4px",
+                                      }}
+                                    >
+                                      🗑️ 刪除
+                                    </button>
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                          </>
+                        )}
                       </div>
                     </div>
 
-                    {/* 視覺引導小箭頭 */}
                     {index < displayItems.length - 1 && (
                       <div className="flow-arrow">⏬</div>
                     )}
@@ -996,7 +1263,7 @@ export default function App() {
                   <input
                     type="file"
                     accept="image/*"
-                    onChange={handleImageUpload}
+                    onChange={(e) => handleImageUpload(e, "create")}
                     style={{
                       fontSize: "14px",
                       width: "100%",
